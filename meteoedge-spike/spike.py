@@ -131,8 +131,8 @@ def parse_bracket_from_market(m: dict) -> "Bracket | None":
     # "Between 82 and 84", "85 or above", "79 or below", ">=85", "<=79".
     sub = (m.get("subtitle") or m.get("yes_sub_title") or "").strip()
 
-    # Range: "82-84", "82 to 84", "82–84", "82 and 84", "between 82 and 84"
-    m_range = re.search(r"(\d{1,3})\s*(?:-|to|–|and)\s*(\d{1,3})", sub)
+    # Range: "82-84", "82 to 84", "82–84", "82 and 84", "82° to 84°", "between 82 and 84"
+    m_range = re.search(r"(\d{1,3})\s*°?\s*(?:-|to|–|and)\s*(\d{1,3})", sub)
     # GTE: ">=85", "≥85"
     m_gte_explicit = re.search(r"(?:>=|≥)\s*(\d{1,3})", sub)
     # GTE: "85 or above/more/higher", "85 and above"
