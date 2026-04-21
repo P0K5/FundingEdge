@@ -308,11 +308,11 @@ def poll_once():
                     yes_lvls = book.get("yes_dollars") or []
                     no_lvls = book.get("no_dollars") or []
                     if yes_lvls:
-                        bracket.yes_ask_cents = round(float(yes_lvls[0][0]) * 100)
-                        bracket.yes_ask_size = round(float(yes_lvls[0][1]))
+                        bracket.yes_ask_cents = round(float(yes_lvls[-1][0]) * 100)
+                        bracket.yes_ask_size = round(float(yes_lvls[-1][1]))
                     if no_lvls:
-                        bracket.no_ask_cents = round(float(no_lvls[0][0]) * 100)
-                        bracket.no_ask_size = round(float(no_lvls[0][1]))
+                        bracket.no_ask_cents = round(float(no_lvls[-1][0]) * 100)
+                        bracket.no_ask_size = round(float(no_lvls[-1][1]))
                 except Exception as e:
                     print(f"[orderbook] {bracket.ticker}: {e}")
 
