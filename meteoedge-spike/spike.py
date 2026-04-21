@@ -300,20 +300,19 @@ def poll_once():
 
                 # Enrich bracket with real-time prices from the orderbook.
                 # The nested event response does not include live ask prices.
+                # Kalshi returns orderbook_fp with yes_dollars/no_dollars as
+                # [price_str, size_str] pairs (prices in dollars, not cents).
                 try:
                     ob = get_orderbook(bracket.ticker)
-                    book = ob.get("orderbook", {})
-                    yes_lvls = book.get("yes") or []
-                    no_lvls = book.get("no") or []
-                    if n_brackets == 1:  # one-time diagnostic: show raw response for first bracket
-                        import json as _json
-                        print(f"[orderbook-debug] {bracket.ticker} raw: {_json.dumps(ob)[:300]}")
+                    book = ob.get("orderbook_fp", {})
+                    yes_lvls = book.get("yes_dollars") or []
+                    no_lvls = book.get("no_dollars") or []
                     if yes_lvls:
-                        bracket.yes_ask_cents = yes_lvls[0][0]
-                        bracket.yes_ask_size = yes_lvls[0][1]
+                        bracket.yes_ask_cents = round(float(yes_lvls[0][0]) * 100)
+                        bracket.yes_ask_size = round(float(yes_lvls[0][1]))
                     if no_lvls:
-                        bracket.no_ask_cents = no_lvls[0][0]
-                        bracket.no_ask_size = no_lvls[0][1]
+                        bracket.no_ask_cents = round(float(no_lvls[0][0]) * 100)
+                        bracket.no_ask_size = round(float(no_lvls[0][1]))
                 except Exception as e:
                     print(f"[orderbook] {bracket.ticker}: {e}")
 
