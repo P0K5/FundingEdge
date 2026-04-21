@@ -3,7 +3,7 @@ from pathlib import Path
 
 # Kalshi
 KALSHI_API_BASE = "https://api.elections.kalshi.com/trade-api/v2"
-KALSHI_API_KEY_ID = "YOUR_KEY_ID_HERE"  # read-only access is enough for the spike
+KALSHI_API_KEY_ID = "2bec40e9-65b9-49a5-a59f-5cb73dfb46cf"  # read-only access is enough for the spike
 KALSHI_PRIVATE_KEY_PATH = Path("keys/kalshi_private.pem")
 
 # Stations: (METAR code, latitude, longitude, city name, NWS station for climate report)
