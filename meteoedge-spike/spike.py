@@ -303,8 +303,11 @@ def poll_once():
                 try:
                     ob = get_orderbook(bracket.ticker)
                     book = ob.get("orderbook", {})
-                    yes_lvls = book.get("yes", [])
-                    no_lvls = book.get("no", [])
+                    yes_lvls = book.get("yes") or []
+                    no_lvls = book.get("no") or []
+                    if n_brackets == 1:  # one-time diagnostic: show raw response for first bracket
+                        import json as _json
+                        print(f"[orderbook-debug] {bracket.ticker} raw: {_json.dumps(ob)[:300]}")
                     if yes_lvls:
                         bracket.yes_ask_cents = yes_lvls[0][0]
                         bracket.yes_ask_size = yes_lvls[0][1]
