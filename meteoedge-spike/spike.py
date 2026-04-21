@@ -16,7 +16,7 @@ from config import (
     SNAPSHOTS_JSONL, HTTP_TIMEOUT_SECONDS, USER_AGENT,
 )
 from envelope import Bracket, WeatherState, true_probability_yes
-from kalshi_client import get_weather_events
+from kalshi_client import get_weather_events, get_orderbook
 
 
 # --- Rough fee approximation for the spike.
@@ -297,6 +297,22 @@ def poll_once():
                 if not bracket:
                     continue
                 n_brackets += 1
+
+                # Enrich bracket with real-time prices from the orderbook.
+                # The nested event response does not include live ask prices.
+                try:
+                    ob = get_orderbook(bracket.ticker)
+                    book = ob.get("orderbook", {})
+                    yes_lvls = book.get("yes", [])
+                    no_lvls = book.get("no", [])
+                    if yes_lvls:
+                        bracket.yes_ask_cents = yes_lvls[0][0]
+                        bracket.yes_ask_size = yes_lvls[0][1]
+                    if no_lvls:
+                        bracket.no_ask_cents = no_lvls[0][0]
+                        bracket.no_ask_size = no_lvls[0][1]
+                except Exception as e:
+                    print(f"[orderbook] {bracket.ticker}: {e}")
 
                 state = weather[station]
                 p_yes = true_probability_yes(bracket, state)
