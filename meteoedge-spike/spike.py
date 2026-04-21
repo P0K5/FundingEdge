@@ -263,6 +263,10 @@ def poll_once():
         print(f"[kalshi] error fetching events: {e}. Skipping this poll.")
         return
 
+    print(f"[kalshi] {len(events)} events fetched")
+    if events:
+        titles = [e.get("title", "?") for e in events[:5]]
+        print(f"[kalshi] sample titles: {titles}")
     for event in events:
         for market in event.get("markets", []):
             try:
