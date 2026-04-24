@@ -1,0 +1,8 @@
+.venv/
+logs/*.csv
+logs/*.jsonl
+logs/open_hedges.json
+keys/binance_keys.env
+__pycache__/
+*.pyc
+.pytest_cache/
