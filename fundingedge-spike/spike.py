@@ -203,12 +203,23 @@ def track_negative_streak(hedge: dict, state: MarketState) -> None:
         hedge["negative_streak"] = 0
 
 
-def poll_once(open_hedges: dict[str, dict], clock=None) -> dict[str, dict]:
+def poll_once(
+    open_hedges: dict[str, dict],
+    clock=None,
+    prev_prices: dict | None = None,
+) -> dict[str, dict]:
     """Run one full poll over all UNIVERSE symbols.
 
     clock: if provided, used as 'now_utc' for every MarketState built during this poll.
     Pass a datetime to freeze time in tests; leave as None in production.
+
+    prev_prices: dict mapping symbol → (spot_bid, spot_ask, perp_bid, perp_ask) from the
+    prior poll. When the API returns identical values to the previous poll the snapshot is
+    flagged stale=True and entry evaluation is skipped — stale prices must not trigger a
+    virtual hedge open. Funding accrual on already-open hedges is unaffected.
     """
+    if prev_prices is None:
+        prev_prices = {}
     if clock is None:
         clock = datetime.now(timezone.utc)
     ts = clock.isoformat()
@@ -218,6 +229,14 @@ def poll_once(open_hedges: dict[str, dict], clock=None) -> dict[str, dict]:
         state = fetch_market_state(symbol, clock=clock)
         if not state:
             continue
+
+        # Stale data detection: Binance public endpoints can return cached responses,
+        # particularly for low-liquidity tokens. Guard against acting on stale prices.
+        price_key = (state.spot_bid, state.spot_ask, state.perp_bid, state.perp_ask)
+        stale = prev_prices.get(symbol) == price_key
+        prev_prices[symbol] = price_key
+        if stale:
+            print(f"  [STALE] {symbol} — identical prices to prior poll, skipping entry eval")
 
         rate_bps = rate_to_bps(state.funding_rate)
         inverse_eligible = (
@@ -233,6 +252,7 @@ def poll_once(open_hedges: dict[str, dict], clock=None) -> dict[str, dict]:
             "persistence": state.persistence_fraction,
             "negative_persistence": state.negative_persistence_fraction,
             "inverse_eligible": inverse_eligible,
+            "stale": stale,
             "spot_mid": (state.spot_bid + state.spot_ask) / 2,
             "perp_mid": (state.perp_bid + state.perp_ask) / 2,
         })
@@ -242,6 +262,7 @@ def poll_once(open_hedges: dict[str, dict], clock=None) -> dict[str, dict]:
             f"basis={state.basis_bps:+.2f} bps "
             f"persistence={state.persistence_fraction:.2f} "
             f"neg_persistence={state.negative_persistence_fraction:.2f}"
+            + (" [STALE]" if stale else "")
         )
         if inverse_eligible:
             print(
@@ -250,33 +271,29 @@ def poll_once(open_hedges: dict[str, dict], clock=None) -> dict[str, dict]:
                 f"— V2 short-funding candidate, not traded"
             )
 
-        # 1. Update any open hedge on this symbol
+        # 1. Update any open hedge on this symbol (always — funding accrual is time-based,
+        #    not price-tick based, so stale prices don't affect correctness here)
         if symbol in open_hedges:
             hedge = open_hedges[symbol]
             accrue_funding(hedge, state)
             track_negative_streak(hedge, state)
 
             hold_hours = (state.now_utc - datetime.fromisoformat(hedge["opened_at"])).total_seconds() / 3600
-            # Target-hold close (deterministic cycle end for comparability)
             if hold_hours >= TARGET_HOLD_HOURS:
                 close_virtual_hedge(hedge, state, reason=f"target_hold_reached_{TARGET_HOLD_HOURS}h")
                 del open_hedges[symbol]
                 continue
-            # Rule-based close
             exit_flag, exit_reason = should_exit(state, hold_hours, hedge.get("negative_streak", 0))
             if exit_flag:
                 close_virtual_hedge(hedge, state, reason=exit_reason)
                 del open_hedges[symbol]
                 continue
 
-        # 2. Otherwise consider entering
-        if symbol not in open_hedges:
+        # 2. Otherwise consider entering — skip on stale prices
+        if symbol not in open_hedges and not stale:
             enter_flag, enter_reason = should_enter(state)
             if enter_flag:
                 open_hedges[symbol] = open_virtual_hedge(state)
-            else:
-                # Only log rejection at INFO level occasionally
-                pass
 
     save_open_hedges(open_hedges)
     return open_hedges
@@ -310,15 +327,19 @@ def main() -> None:
     if open_hedges:
         print(f"Resumed with {len(open_hedges)} open virtual hedges: {list(open_hedges)}")
 
+    prev_prices: dict[str, tuple] = {}
+
     while True:
+        t0 = time.monotonic()
         try:
-            open_hedges = poll_once(open_hedges)
+            open_hedges = poll_once(open_hedges, prev_prices=prev_prices)
         except KeyboardInterrupt:
             print("\nStopping. Open virtual hedges persisted to logs/open_hedges.json.")
             break
         except Exception as e:
             print(f"[loop] unhandled error: {e}")
-        time.sleep(POLL_INTERVAL_SECONDS)
+        elapsed = time.monotonic() - t0
+        time.sleep(max(0.0, POLL_INTERVAL_SECONDS - elapsed))
 
 
 if __name__ == "__main__":
