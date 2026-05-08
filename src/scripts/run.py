@@ -14,23 +14,16 @@ from pathlib import Path
 from src.config import (
     STATIONS, STATION_TZ, POLL_INTERVAL_SECONDS, LOG_DIR,
     CANDIDATES_CSV, SNAPSHOTS_JSONL,
+    RISK_DAILY_LOSS_LIMIT_EUR, RISK_MAX_OPEN_POSITIONS,
+    RISK_DRAWDOWN_STOP_PCT, RISK_MIN_LIQUIDITY, STARTING_CAPITAL_EUR,
 )
 from src.data.metar import fetch_all_metars_today, compute_daily_high, now_local, sunset_local
 from src.data.nws import fetch_nws_forecast_high
 from src.data.open_meteo import fetch_secondary_forecast
 from src.data.polymarket import get_weather_markets
 from src.model.envelope import WeatherState
+from src.risk.manager import RiskManager
 from src.strategy.scanner import scan_markets
-
-
-# ---------------------------------------------------------------------------
-# Risk management stub — replaced by src/risk/manager.py in Epic 1
-# ---------------------------------------------------------------------------
-
-class _RiskManagerStub:
-    """Placeholder: allows all trades. Replace with RiskManager from E1-1."""
-    def allow_trade(self, *args, **kwargs) -> tuple[bool, str]:
-        return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -135,10 +128,16 @@ def poll_once(risk_manager) -> None:
     # 5. Process candidates
     n_flagged = 0
     for cand in candidates:
-        allowed, reason = risk_manager.allow_trade()
+        liquidity = cand.bracket.yes_ask_size + cand.bracket.no_ask_size
+        allowed, reason = risk_manager.allow_trade(
+            capital=STARTING_CAPITAL_EUR,
+            liquidity_contracts=liquidity,
+        )
         if not allowed:
-            print(f"  [risk] BLOCKED {cand.bracket.ticker[:16]}… {cand.side}: {reason}")
+            print(f"  [risk] blocked: {reason}")
             continue
+
+        risk_manager.open_position()
 
         n_flagged += 1
         row = {
@@ -159,6 +158,8 @@ def poll_once(risk_manager) -> None:
             "minutes_to_settlement": round(cand.minutes_to_settlement, 1),
         }
         _append_candidate(row)
+        risk_manager.close_position()
+        risk_manager.record_pnl(0.0)
 
     print(
         f"[scan] {len(markets)} markets, {len(snapshots)} evaluated, "
@@ -192,7 +193,13 @@ def main() -> None:
     print(f"MeteoEdge starting in {mode} mode.")
     print("Logs will be written to ./logs/")
 
-    risk_manager = _RiskManagerStub()
+    risk_manager = RiskManager(
+        daily_loss_limit_eur=RISK_DAILY_LOSS_LIMIT_EUR,
+        max_open_positions=RISK_MAX_OPEN_POSITIONS,
+        drawdown_stop_pct=RISK_DRAWDOWN_STOP_PCT,
+        min_market_liquidity=RISK_MIN_LIQUIDITY,
+        starting_capital=STARTING_CAPITAL_EUR,
+    )
 
     if args.once:
         poll_once(risk_manager)
