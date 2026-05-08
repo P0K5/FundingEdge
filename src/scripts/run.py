@@ -128,7 +128,9 @@ def poll_once(risk_manager) -> None:
     # 5. Process candidates
     n_flagged = 0
     for cand in candidates:
-        liquidity = cand.bracket.yes_ask_size + cand.bracket.no_ask_size
+        raw_liquidity = cand.bracket.yes_ask_size + cand.bracket.no_ask_size
+        # When CLOB enrichment is off, sizes are 0 (unknown) — skip the liquidity gate
+        liquidity = raw_liquidity if raw_liquidity > 0 else 9999
         allowed, reason = risk_manager.allow_trade(
             capital=STARTING_CAPITAL_EUR,
             liquidity_contracts=liquidity,
