@@ -2,11 +2,11 @@
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-import httpx
 import pytz
 from astral import LocationInfo
 from astral.sun import sun
 
+from http_client import fetch, get_nws_forecast_url, cached_fetch_json
 from improved_envelope import WeatherState, Bracket, true_probability_yes, fetch_secondary_forecast
 from paper_trader import PaperTrader
 
@@ -43,11 +43,14 @@ MIN_CONFIDENCE = 0.80
 MAX_CONFIDENCE_NO = 0.20
 
 def fetch_metar(station: str) -> dict | None:
-    """Fetch latest METAR observation."""
+    """Fetch latest METAR observation.
+
+    METAR data is real-time (updated every ~20 min) so we do NOT cache it,
+    but the request still goes through the shared rate-limiter and retry logic.
+    """
     try:
         url = f"https://aviationweather.gov/api/data/metar?ids={station}&format=json&hours=2"
-        r = httpx.get(url, timeout=10)
-        r.raise_for_status()
+        r = fetch(url, timeout=10)
         data = r.json()
         return data[0] if data else None
     except Exception as e:
@@ -67,19 +70,24 @@ def extract_temp_from_metar(metar: dict) -> tuple[float, datetime] | None:
         return None
 
 def fetch_nws_forecast(lat: float, lon: float) -> float | None:
-    """Fetch NWS forecast high."""
+    """Fetch NWS forecast high.
+
+    Two-tier caching:
+    - /points URL is cached permanently (static per coordinate).
+    - Hourly forecast payload is cached 30 min (NWS updates ~hourly).
+    """
     try:
-        points_url = f"https://api.weather.gov/points/{lat},{lon}"
-        r = httpx.get(points_url, timeout=10)
-        r.raise_for_status()
-        forecast_url = r.json()["properties"]["forecastHourly"]
-        r2 = httpx.get(forecast_url, timeout=10)
-        r2.raise_for_status()
-        periods = r2.json()["properties"]["periods"]
+        forecast_url = get_nws_forecast_url(lat, lon)
+        if not forecast_url:
+            return None
+        data = cached_fetch_json(forecast_url, ttl_minutes=30)
+        if not data:
+            return None
+        periods = data["properties"]["periods"]
         highs = [p["temperature"] for p in periods[:18] if p.get("temperatureUnit") == "F"]
         return max(highs) if highs else None
     except Exception as e:
-        print(f"[nws] {lat},{lon} error: {e}")
+        print(f"[nws] ({lat},{lon}) error: {e}")
         return None
 
 def get_weather_state(station_code: str, lat: float, lon: float) -> WeatherState | None:
@@ -125,15 +133,17 @@ def get_weather_state(station_code: str, lat: float, lon: float) -> WeatherState
     )
 
 def get_weather_markets() -> list[dict]:
-    """Fetch weather-tagged markets from Polymarket."""
-    try:
-        url = f"{POLYMARKET_GAMMA_API}/markets?tag_id={POLYMARKET_WEATHER_TAG_ID}&limit=1000"
-        r = httpx.get(url, timeout=15)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        print(f"[polymarket] error: {e}")
+    """Fetch weather-tagged markets from Polymarket.
+
+    Cached for 5 minutes — market open/close events happen infrequently
+    within a single session and do not need sub-minute freshness.
+    """
+    url = f"{POLYMARKET_GAMMA_API}/markets?tag_id={POLYMARKET_WEATHER_TAG_ID}&limit=1000"
+    data = cached_fetch_json(url, ttl_minutes=5)
+    if data is None:
+        print("[polymarket] failed to fetch markets (returned None)")
         return []
+    return data if isinstance(data, list) else []
 
 def parse_bracket(market: dict) -> Bracket | None:
     """Parse a weather bracket from Polymarket market data."""

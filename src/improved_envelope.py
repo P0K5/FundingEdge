@@ -2,7 +2,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import erf, sqrt
-import httpx
+
+from http_client import cached_fetch_json
 
 @dataclass
 class WeatherState:
@@ -49,18 +50,26 @@ def expected_additional_rise(station: str, now_local: datetime) -> float:
     return CLIMB_LOOKUP_SPRING.get(hour, 0.0)
 
 def fetch_secondary_forecast(lat: float, lon: float) -> float | None:
-    """Fetch from OpenWeatherMap as secondary source."""
+    """Fetch from Open-Meteo as secondary forecast source.
+
+    Cached for 30 minutes — Open-Meteo updates hourly and the free tier
+    caps at 10 000 req/day.  With 11 stations every 5 min that would be
+    ~3 168 req/day uncached; caching reduces it to ~528 req/day.
+    """
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        f"&hourly=temperature_2m,weather_code"
+        f"&temperature_unit=fahrenheit&timezone=auto"
+    )
+    data = cached_fetch_json(url, ttl_minutes=30)
+    if not data:
+        return None
     try:
-        # Free tier: only current temp, but shows redundancy
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=auto"
-        r = httpx.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        # Get max of next 24 hours
-        temps = data['hourly']['temperature_2m'][:24]
+        temps = data["hourly"]["temperature_2m"][:24]
         return max(temps) if temps else None
     except Exception as e:
-        print(f"[secondary-forecast] error: {e}")
+        print(f"[secondary-forecast] parse error: {e}")
         return None
 
 def ensemble_forecast(primary: float | None, secondary: float | None) -> float | None:
