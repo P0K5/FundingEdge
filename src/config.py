@@ -50,6 +50,13 @@ MIN_MINUTES_TO_SETTLEMENT = 15
 # Polling cadence (env var override)
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))  # 5 minutes default
 
+# Risk management limits (all configurable via env vars)
+STARTING_CAPITAL_EUR = float(os.getenv("STARTING_CAPITAL_EUR", "500.0"))
+RISK_DAILY_LOSS_LIMIT_EUR = float(os.getenv("RISK_DAILY_LOSS_LIMIT_EUR", "50.0"))
+RISK_MAX_OPEN_POSITIONS = int(os.getenv("RISK_MAX_OPEN_POSITIONS", "15"))
+RISK_DRAWDOWN_STOP_PCT = float(os.getenv("RISK_DRAWDOWN_STOP_PCT", "0.15"))
+RISK_MIN_LIQUIDITY = int(os.getenv("RISK_MIN_LIQUIDITY", "50"))
+
 # Historical climb rates: p95 additional rise (°F) from time-of-day to end-of-day.
 # Hand-seeded approximations. In the full build, compute from 5 years of METAR.
 # Hours 0-9 reflect the full diurnal range still ahead (daily min typically 4-7am).
