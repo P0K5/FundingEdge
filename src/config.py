@@ -24,7 +24,7 @@ STATIONS = [
     ("KLAX", 33.9425,  -118.4081, "Los Angeles",   "KLAX"),
     ("KATL", 33.6367,  -84.4281,  "Atlanta",       "KATL"),
     ("KHOU", 29.6454,  -95.2789,  "Houston",       "KHOU"),  # Houston Hobby
-    ("KSFO", 37.6213,  -122.3790, "San Francisco", "KSFO"),
+    # KSFO removed — marine layer causes unreliable forecasts on both YES and NO sides
     ("KSEA", 47.4502,  -122.3088, "Seattle",       "KSEA"),
 ]
 
