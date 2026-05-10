@@ -55,7 +55,7 @@ def time_to_settlement_boost(p: float, minutes_left: float) -> float:
     if minutes_left < 60:
         # Final hour: compress toward extremes
         # If model says 70%, boost to 75% (more confident at end)
-        return p + (p - 0.5) * 0.2 * (1 - minutes_left / 60)
+        return min(1.0, max(0.0, p + (p - 0.5) * 0.2 * (1 - minutes_left / 60)))
     return p
 
 

@@ -96,4 +96,45 @@ def settle_yesterday():
 
 
 if __name__ == "__main__":
-    settle_yesterday()
+    import sys
+    if len(sys.argv) > 1:
+        target = date.fromisoformat(sys.argv[1])
+        # Reuse settle_yesterday logic but for arbitrary date
+        print(f"Settling for {target}")
+        truth = {}
+        for station, _, _, _, _ in STATIONS:
+            h = fetch_daily_climate_high(station, target)
+            if h is not None:
+                truth[station] = h
+                print(f"  {station} daily high = {h:.1f}°F")
+        new_file = not SETTLEMENTS_CSV.exists()
+        with open(CANDIDATES_CSV) as f_in, open(SETTLEMENTS_CSV, "a", newline="") as f_out:
+            reader = csv.DictReader(f_in)
+            writer = None
+            for row in reader:
+                if row["ts"][:10] != target.isoformat():
+                    continue
+                station = row["station"]
+                if station not in truth:
+                    continue
+                actual = truth[station]
+                lo, hi = float(row["bracket_low"]), float(row["bracket_high"])
+                yes_won = lo <= actual <= hi
+                won = yes_won if row["flagged_side"] == "YES" else not yes_won
+                if row["flagged_side"] == "YES":
+                    pnl = (100 - float(row["flagged_price"])) if yes_won else -float(row["flagged_price"])
+                else:
+                    pnl = (100 - float(row["flagged_price"])) if (not yes_won) else -float(row["flagged_price"])
+                out = {**row, "actual_high": actual, "yes_won": yes_won,
+                       "candidate_won": won, "pnl_cents": round(pnl, 2)}
+                if writer is None:
+                    writer = csv.DictWriter(f_out, fieldnames=list(out.keys()))
+                    if new_file:
+                        writer.writeheader()
+                writer.writerow(out)
+        if writer:
+            print(f"Wrote settlements to {SETTLEMENTS_CSV}")
+        else:
+            print(f"No candidates matched {target} — nothing written.")
+    else:
+        settle_yesterday()
