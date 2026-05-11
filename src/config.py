@@ -54,6 +54,11 @@ MAX_CONFIDENCE_YES_FOR_NO = 0.20  # for NO-side trades (1 - confidence_no >= 0.8
 # Re-enable once ≥7 days of settlements validate YES accuracy.
 ENABLE_YES_TRADES = os.getenv("ENABLE_YES_TRADES", "false").lower() == "true"
 MIN_MINUTES_TO_SETTLEMENT = 15
+# Daily temperature markets resolve within 24h — reject anything beyond this window.
+# Without this cap the scanner evaluates tomorrow's markets against today's METAR data,
+# producing spurious 100% NO confidence (today's observed high makes future brackets
+# look impossible when they are not).
+MAX_MINUTES_TO_SETTLEMENT = int(os.getenv("MAX_MINUTES_TO_SETTLEMENT", "1440"))  # 24 hours
 
 # Polling cadence (env var override)
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))  # 5 minutes default

@@ -15,7 +15,7 @@ from dateutil import parser as dtparse
 
 from src.config import (
     STATIONS, MIN_EDGE_CENTS, MIN_CONFIDENCE_YES, MAX_CONFIDENCE_YES_FOR_NO, ENABLE_YES_TRADES,
-    MIN_MINUTES_TO_SETTLEMENT, ENABLE_CLOB_ENRICHMENT,
+    MIN_MINUTES_TO_SETTLEMENT, MAX_MINUTES_TO_SETTLEMENT, ENABLE_CLOB_ENRICHMENT,
 )
 from src.model.envelope import Bracket, WeatherState, true_probability_yes, compute_envelope
 from src.data.polymarket import get_orderbook
@@ -213,7 +213,7 @@ def scan_markets(
                 continue
 
             mins_left = minutes_to_settlement(market)
-            if mins_left < MIN_MINUTES_TO_SETTLEMENT:
+            if mins_left < MIN_MINUTES_TO_SETTLEMENT or mins_left > MAX_MINUTES_TO_SETTLEMENT:
                 continue
 
             bracket = parse_bracket_from_market(market)
