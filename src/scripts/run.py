@@ -19,7 +19,7 @@ from src.config import (
     CANDIDATES_CSV, SNAPSHOTS_JSONL, LIVE_TRADES_JSONL,
     RISK_DAILY_LOSS_LIMIT_EUR, RISK_MAX_OPEN_POSITIONS,
     RISK_DRAWDOWN_STOP_PCT, RISK_MIN_LIQUIDITY, STARTING_CAPITAL_EUR,
-    POSITION_SIZE_EUR,
+    POSITION_SIZE_EUR, POSITION_SIZE_WITH_FEES,
 )
 from src.data.metar import fetch_all_metars_today, compute_daily_high, now_local, sunset_local
 from src.data.nws import fetch_nws_forecast_high
@@ -228,8 +228,8 @@ def poll_once(risk_manager, live_trader=None) -> None:
             print(f"  [risk] blocked: {reason}")
             continue
 
-        if live_trader and available_usdc < POSITION_SIZE_EUR:
-            print(f"  [balance] insufficient ({available_usdc:.2f} USDC < {POSITION_SIZE_EUR:.2f} needed), skipping remaining")
+        if live_trader and available_usdc < POSITION_SIZE_WITH_FEES:
+            print(f"  [balance] insufficient ({available_usdc:.2f} USDC < {POSITION_SIZE_WITH_FEES:.2f} needed incl. fees), skipping remaining")
             break
 
         n_acted += 1
@@ -254,7 +254,7 @@ def poll_once(risk_manager, live_trader=None) -> None:
 
         if live_trader:
             risk_manager.open_position()  # Reserve slot before spawning thread
-            available_usdc -= POSITION_SIZE_EUR
+            available_usdc -= POSITION_SIZE_WITH_FEES
             approved.append(cand)
         else:
             risk_manager.open_position()

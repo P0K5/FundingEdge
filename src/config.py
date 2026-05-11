@@ -89,6 +89,8 @@ LIVE_TRADES_JSONL = LOG_DIR / "live_trades.jsonl"
 # Live execution
 POLYMARKET_HOST = os.getenv("POLYMARKET_HOST", "https://clob.polymarket.com")
 POSITION_SIZE_EUR = float(os.getenv("POSITION_SIZE_EUR", "5.0"))
+# 2% buffer covers Polymarket taker fees (price-dependent, highest ~2% at extreme prices)
+POSITION_SIZE_WITH_FEES = POSITION_SIZE_EUR * 1.02
 
 # HTTP
 HTTP_TIMEOUT_SECONDS = 15
