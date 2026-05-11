@@ -2,12 +2,17 @@
 from typing import Literal
 
 from py_clob_client_v2 import ClobClient
-from py_clob_client_v2.clob_types import CreateOrderOptions, OrderArgs
+from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams, CreateOrderOptions, OrderArgs
 
 
 class LiveTrader:
     def __init__(self, client: ClobClient):
         self.client = client
+
+    def get_usdc_balance(self) -> float:
+        """Return available USDC in the CLOB (internal balance, not on-chain)."""
+        bal = self.client.get_balance_allowance(BalanceAllowanceParams(asset_type=AssetType.COLLATERAL))
+        return int(bal["balance"]) / 1e6
 
     def place_order(
         self,

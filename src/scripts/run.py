@@ -207,6 +207,14 @@ def poll_once(risk_manager, live_trader=None) -> None:
 
     # Filter candidates through risk manager sequentially so position counts are accurate,
     # then execute all approved live orders in parallel so they hit the market simultaneously.
+    available_usdc = float("inf")
+    if live_trader:
+        try:
+            available_usdc = live_trader.get_usdc_balance()
+            print(f"[balance] {available_usdc:.2f} USDC available")
+        except Exception as e:
+            print(f"[balance] check failed: {e} — proceeding without balance gate")
+
     approved: list = []
     n_acted = 0
     for cand in candidates:
@@ -219,6 +227,10 @@ def poll_once(risk_manager, live_trader=None) -> None:
         if not allowed:
             print(f"  [risk] blocked: {reason}")
             continue
+
+        if live_trader and available_usdc < POSITION_SIZE_EUR:
+            print(f"  [balance] insufficient ({available_usdc:.2f} USDC < {POSITION_SIZE_EUR:.2f} needed), skipping remaining")
+            break
 
         n_acted += 1
         row = {
@@ -242,6 +254,7 @@ def poll_once(risk_manager, live_trader=None) -> None:
 
         if live_trader:
             risk_manager.open_position()  # Reserve slot before spawning thread
+            available_usdc -= POSITION_SIZE_EUR
             approved.append(cand)
         else:
             risk_manager.open_position()
