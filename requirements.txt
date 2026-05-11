@@ -5,7 +5,7 @@
 httpx>=0.24.0
 
 # Polymarket CLOB execution
-py-clob-client>=0.18.0
+py-clob-client-v2>=1.0.1
 
 # Timezone & Datetime
 python-dateutil>=2.8.2

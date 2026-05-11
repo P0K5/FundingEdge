@@ -1,8 +1,8 @@
 """Live order execution via Polymarket CLOB."""
 from typing import Literal
 
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import CreateOrderOptions, OrderArgs
+from py_clob_client_v2 import ClobClient
+from py_clob_client_v2.clob_types import CreateOrderOptions, OrderArgs
 
 
 class LiveTrader:
