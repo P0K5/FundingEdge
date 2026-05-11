@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from dateutil import parser as dtparse
 
 from src.config import (
-    STATIONS, MIN_EDGE_CENTS, MIN_CONFIDENCE_YES, MAX_CONFIDENCE_YES_FOR_NO,
+    STATIONS, MIN_EDGE_CENTS, MIN_CONFIDENCE_YES, MAX_CONFIDENCE_YES_FOR_NO, ENABLE_YES_TRADES,
     MIN_MINUTES_TO_SETTLEMENT, ENABLE_CLOB_ENRICHMENT,
 )
 from src.model.envelope import Bracket, WeatherState, true_probability_yes, compute_envelope
@@ -243,7 +243,7 @@ def scan_markets(
 
             # Check for a tradeable edge
             candidate = None
-            if ev_yes >= MIN_EDGE_CENTS and p_yes >= MIN_CONFIDENCE_YES:
+            if ENABLE_YES_TRADES and ev_yes >= MIN_EDGE_CENTS and p_yes >= MIN_CONFIDENCE_YES:
                 candidate = Candidate(
                     station=station, bracket=bracket, side="YES",
                     edge_cents=ev_yes, price_cents=bracket.yes_ask_cents,
