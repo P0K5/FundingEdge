@@ -2,6 +2,10 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env from cwd (or parent dirs) into os.environ
+
 # Polymarket APIs (no authentication required for read-only access)
 POLYMARKET_GAMMA_API = "https://gamma-api.polymarket.com"
 POLYMARKET_CLOB_API = "https://clob.polymarket.com"
