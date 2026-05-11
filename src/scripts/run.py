@@ -8,7 +8,9 @@ Usage:
 import argparse
 import csv
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,6 +32,8 @@ from src.strategy.scanner import scan_markets
 FILL_POLL_INTERVAL_S = 30
 FILL_MAX_WAIT_S = 300  # 5 minutes, 10 attempts
 
+_write_lock = threading.Lock()
+
 
 # ---------------------------------------------------------------------------
 # Logging helpers
@@ -43,31 +47,35 @@ def _append_snapshot(snap: dict) -> None:
 
 def _append_candidate(row: dict) -> None:
     LOG_DIR.mkdir(exist_ok=True)
-    new_file = not CANDIDATES_CSV.exists()
-    with open(CANDIDATES_CSV, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(row.keys()))
-        if new_file:
-            w.writeheader()
-        w.writerow(row)
+    with _write_lock:
+        new_file = not CANDIDATES_CSV.exists()
+        with open(CANDIDATES_CSV, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(row.keys()))
+            if new_file:
+                w.writeheader()
+            w.writerow(row)
 
 
 def _append_live_trade(record: dict) -> None:
     LOG_DIR.mkdir(exist_ok=True)
-    with open(LIVE_TRADES_JSONL, "a") as f:
-        f.write(json.dumps(record, default=str) + "\n")
+    with _write_lock:
+        with open(LIVE_TRADES_JSONL, "a") as f:
+            f.write(json.dumps(record, default=str) + "\n")
 
 
 # ---------------------------------------------------------------------------
-# Live order lifecycle (E3-3)
+# Live order lifecycle
 # ---------------------------------------------------------------------------
 
 def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
+    """Place one order and wait for fill/timeout. open_position() already called by caller."""
     token_id = (
         candidate.bracket.yes_token_id if candidate.side == "YES"
         else candidate.bracket.no_token_id
     )
     if not token_id:
         print(f"  [live] no token_id for {candidate.bracket.ticker[:16]}…, skipping")
+        risk_manager.close_position()
         return
 
     try:
@@ -79,9 +87,9 @@ def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
         )
     except Exception as e:
         print(f"  [live] place_order failed: {e}")
+        risk_manager.close_position()
         return
 
-    risk_manager.open_position()
     print(f"  [live] placed {order_id[:12]}… {candidate.side} @ {candidate.price_cents}¢")
 
     deadline = time.monotonic() + FILL_MAX_WAIT_S
@@ -197,6 +205,9 @@ def poll_once(risk_manager, live_trader=None) -> None:
     for snap in snapshots:
         _append_snapshot(snap)
 
+    # Filter candidates through risk manager sequentially so position counts are accurate,
+    # then execute all approved live orders in parallel so they hit the market simultaneously.
+    approved: list = []
     n_acted = 0
     for cand in candidates:
         raw_liquidity = cand.bracket.yes_ask_size + cand.bracket.no_ask_size
@@ -230,11 +241,24 @@ def poll_once(risk_manager, live_trader=None) -> None:
         _append_candidate(row)
 
         if live_trader:
-            _execute_live(cand, live_trader, risk_manager, ts)
+            risk_manager.open_position()  # Reserve slot before spawning thread
+            approved.append(cand)
         else:
             risk_manager.open_position()
             risk_manager.close_position()
             risk_manager.record_pnl(0.0)
+
+    if live_trader and approved:
+        with ThreadPoolExecutor(max_workers=len(approved)) as executor:
+            futures = [
+                executor.submit(_execute_live, cand, live_trader, risk_manager, ts)
+                for cand in approved
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"  [live] thread error: {e}")
 
     print(
         f"[scan] {len(markets)} markets, {len(snapshots)} evaluated, "
