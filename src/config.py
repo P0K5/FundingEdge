@@ -80,6 +80,11 @@ LOG_DIR = Path("logs")
 CANDIDATES_CSV = LOG_DIR / "candidates.csv"
 SNAPSHOTS_JSONL = LOG_DIR / "snapshots.jsonl"
 SETTLEMENTS_CSV = LOG_DIR / "settlements.csv"
+LIVE_TRADES_JSONL = LOG_DIR / "live_trades.jsonl"
+
+# Live execution
+POLYMARKET_HOST = os.getenv("POLYMARKET_HOST", "https://clob.polymarket.com")
+POSITION_SIZE_EUR = float(os.getenv("POSITION_SIZE_EUR", "5.0"))
 
 # HTTP
 HTTP_TIMEOUT_SECONDS = 15

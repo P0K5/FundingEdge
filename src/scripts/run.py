@@ -1,8 +1,9 @@
 """Main polling loop. Run during trading hours.
 
 Usage:
-    python src/scripts/run.py --paper         # paper trading mode (default)
-    python src/scripts/run.py --paper --once  # single poll then exit
+    python -m src.scripts.run            # paper trading mode (default)
+    python -m src.scripts.run --once     # single poll then exit
+    python -m src.scripts.run --live     # live trading (requires POLYMARKET_API_KEY)
 """
 import argparse
 import csv
@@ -13,9 +14,10 @@ from pathlib import Path
 
 from src.config import (
     STATIONS, STATION_TZ, POLL_INTERVAL_SECONDS, LOG_DIR,
-    CANDIDATES_CSV, SNAPSHOTS_JSONL,
+    CANDIDATES_CSV, SNAPSHOTS_JSONL, LIVE_TRADES_JSONL,
     RISK_DAILY_LOSS_LIMIT_EUR, RISK_MAX_OPEN_POSITIONS,
     RISK_DRAWDOWN_STOP_PCT, RISK_MIN_LIQUIDITY, STARTING_CAPITAL_EUR,
+    POSITION_SIZE_EUR,
 )
 from src.data.metar import fetch_all_metars_today, compute_daily_high, now_local, sunset_local
 from src.data.nws import fetch_nws_forecast_high
@@ -24,6 +26,9 @@ from src.data.polymarket import get_weather_markets
 from src.model.envelope import WeatherState
 from src.risk.manager import RiskManager
 from src.strategy.scanner import scan_markets
+
+FILL_POLL_INTERVAL_S = 30
+FILL_MAX_WAIT_S = 300  # 5 minutes, 10 attempts
 
 
 # ---------------------------------------------------------------------------
@@ -46,16 +51,77 @@ def _append_candidate(row: dict) -> None:
         w.writerow(row)
 
 
+def _append_live_trade(record: dict) -> None:
+    LOG_DIR.mkdir(exist_ok=True)
+    with open(LIVE_TRADES_JSONL, "a") as f:
+        f.write(json.dumps(record, default=str) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Live order lifecycle (E3-3)
+# ---------------------------------------------------------------------------
+
+def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
+    token_id = (
+        candidate.bracket.yes_token_id if candidate.side == "YES"
+        else candidate.bracket.no_token_id
+    )
+    if not token_id:
+        print(f"  [live] no token_id for {candidate.bracket.ticker[:16]}…, skipping")
+        return
+
+    try:
+        order_id = live_trader.place_order(
+            token_id=token_id,
+            side=candidate.side,
+            price_cents=candidate.price_cents,
+            size_usdc=POSITION_SIZE_EUR,
+        )
+    except Exception as e:
+        print(f"  [live] place_order failed: {e}")
+        return
+
+    risk_manager.open_position()
+    print(f"  [live] placed {order_id[:12]}… {candidate.side} @ {candidate.price_cents}¢")
+
+    deadline = time.monotonic() + FILL_MAX_WAIT_S
+    outcome = "timeout"
+    while time.monotonic() < deadline:
+        time.sleep(FILL_POLL_INTERVAL_S)
+        status = live_trader.check_fill(order_id)
+        if status == "filled":
+            outcome = "filled"
+            break
+        if status == "cancelled":
+            outcome = "cancelled"
+            break
+
+    if outcome == "timeout":
+        live_trader.cancel_order(order_id)
+
+    risk_manager.close_position()
+    if outcome == "filled":
+        risk_manager.record_pnl(0.0)  # Actual PnL resolved at settlement
+
+    _append_live_trade({
+        "ts": ts,
+        "order_id": order_id,
+        "station": candidate.station,
+        "ticker": candidate.bracket.ticker,
+        "side": candidate.side,
+        "price_cents": candidate.price_cents,
+        "size_eur": POSITION_SIZE_EUR,
+        "edge_cents": round(candidate.edge_cents, 2),
+        "outcome": outcome,
+    })
+    print(f"  [live] {outcome} {order_id[:12]}…")
+
+
 # ---------------------------------------------------------------------------
 # Poll loop
 # ---------------------------------------------------------------------------
 
-def poll_once(risk_manager) -> None:
-    """Run one full poll: build weather states, fetch markets, scan, log candidates."""
-    ts = datetime.now(timezone.utc).isoformat()
-    print(f"\n=== Poll at {ts} ===")
-
-    # 1. Build weather state for each station
+def _build_weather() -> dict[str, WeatherState]:
     weather: dict[str, WeatherState] = {}
     for station, lat, lon, city, _ in STATIONS:
         metars = fetch_all_metars_today(station)
@@ -105,12 +171,20 @@ def poll_once(risk_manager) -> None:
             secondary_forecast_f=forecast_secondary,
         )
         print(f"[{station}] high={high_f:.1f}°F latest={latest_temp_f:.1f}°F nws={forecast_nws}")
+    return weather
 
+
+def poll_once(risk_manager, live_trader=None) -> None:
+    """Run one full poll: build weather states, fetch markets, scan, log candidates."""
+    ts = datetime.now(timezone.utc).isoformat()
+    mode_label = "LIVE" if live_trader else "PAPER"
+    print(f"\n=== Poll [{mode_label}] at {ts} ===")
+
+    weather = _build_weather()
     if not weather:
         print("[run] No weather data for any station — skipping market scan")
         return
 
-    # 2. Fetch Polymarket markets
     try:
         markets = get_weather_markets()
     except Exception as e:
@@ -118,18 +192,14 @@ def poll_once(risk_manager) -> None:
         return
     print(f"[polymarket] {len(markets)} weather markets fetched")
 
-    # 3. Scan for candidates
     candidates, snapshots = scan_markets(weather, markets)
 
-    # 4. Log all snapshots
     for snap in snapshots:
         _append_snapshot(snap)
 
-    # 5. Process candidates
-    n_flagged = 0
+    n_acted = 0
     for cand in candidates:
         raw_liquidity = cand.bracket.yes_ask_size + cand.bracket.no_ask_size
-        # When CLOB enrichment is off, sizes are 0 (unknown) — skip the liquidity gate
         liquidity = raw_liquidity if raw_liquidity > 0 else 9999
         allowed, reason = risk_manager.allow_trade(
             capital=STARTING_CAPITAL_EUR,
@@ -139,9 +209,7 @@ def poll_once(risk_manager) -> None:
             print(f"  [risk] blocked: {reason}")
             continue
 
-        risk_manager.open_position()
-
-        n_flagged += 1
+        n_acted += 1
         row = {
             "ts": ts,
             "station": cand.station,
@@ -160,39 +228,51 @@ def poll_once(risk_manager) -> None:
             "minutes_to_settlement": round(cand.minutes_to_settlement, 1),
         }
         _append_candidate(row)
-        risk_manager.close_position()
-        risk_manager.record_pnl(0.0)
+
+        if live_trader:
+            _execute_live(cand, live_trader, risk_manager, ts)
+        else:
+            risk_manager.open_position()
+            risk_manager.close_position()
+            risk_manager.record_pnl(0.0)
 
     print(
         f"[scan] {len(markets)} markets, {len(snapshots)} evaluated, "
-        f"{len(candidates)} candidates, {n_flagged} logged"
+        f"{len(candidates)} candidates, {n_acted} acted on"
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="MeteoEdge polling loop")
     parser.add_argument(
-        "--paper", action="store_true", default=True,
-        help="Paper trading mode (default; no real orders placed)",
-    )
-    parser.add_argument(
-        "--once", action="store_true", default=False,
-        help="Run a single poll then exit (for testing)",
+        "--paper", action="store_true", default=False,
+        help="Paper trading mode — log candidates but place no real orders (default)",
     )
     parser.add_argument(
         "--live", action="store_true", default=False,
-        help="LIVE trading mode — NOT YET IMPLEMENTED (see E3-2)",
+        help="Live trading mode — place real orders via Polymarket CLOB (requires POLYMARKET_API_KEY)",
+    )
+    parser.add_argument(
+        "--once", action="store_true", default=False,
+        help="Run a single poll then exit",
     )
     args = parser.parse_args()
 
-    if args.live:
-        raise NotImplementedError(
-            "Live trading not yet implemented — see Epic 3, issue E3-2. "
-            "Run with --paper for paper trading."
-        )
+    if args.live and args.paper:
+        parser.error("--live and --paper are mutually exclusive")
 
-    mode = "PAPER" if args.paper else "LIVE"
-    print(f"MeteoEdge starting in {mode} mode.")
+    live_trader = None
+    if args.live:
+        from src.execution.auth import get_clob_client, check_clob_health
+        from src.execution.live_trader import LiveTrader
+        print("Checking CLOB connectivity…")
+        if not check_clob_health():
+            raise SystemExit("[run] CLOB health check failed — verify POLYMARKET_API_KEY and connectivity")
+        live_trader = LiveTrader(get_clob_client())
+        print("MeteoEdge starting in LIVE mode. Real orders will be placed.")
+    else:
+        print("MeteoEdge starting in PAPER mode.")
+
     print("Logs will be written to ./logs/")
 
     risk_manager = RiskManager(
@@ -204,14 +284,14 @@ def main() -> None:
     )
 
     if args.once:
-        poll_once(risk_manager)
+        poll_once(risk_manager, live_trader)
         print("[run] --once mode: exiting after single poll.")
         return
 
     print(f"Polling every {POLL_INTERVAL_SECONDS}s. Press Ctrl-C to stop.")
     while True:
         try:
-            poll_once(risk_manager)
+            poll_once(risk_manager, live_trader)
         except KeyboardInterrupt:
             print("\n[run] Stopping.")
             break
