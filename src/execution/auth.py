@@ -22,7 +22,7 @@ def check_clob_health() -> bool:
     try:
         client = get_clob_client()
         resp = client.get_ok()
-        return resp is True or (isinstance(resp, dict) and resp.get("status") == "OK")
+        return resp in (True, "OK") or (isinstance(resp, dict) and resp.get("status") == "OK")
     except Exception as e:
         print(f"[clob-health] {e}")
         return False
