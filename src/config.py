@@ -47,6 +47,7 @@ STATION_TZ = {
 
 # Strategy thresholds (env var overrides)
 MIN_EDGE_CENTS = float(os.getenv("MIN_EDGE_CENTS", "15.0"))
+MIN_PRICE_CENTS = int(os.getenv("MIN_PRICE_CENTS", "10"))  # skip near-certain outcomes that won't fill
 MIN_CONFIDENCE_YES = 0.80       # for YES-side trades
 MAX_CONFIDENCE_YES_FOR_NO = 0.20  # for NO-side trades (1 - confidence_no >= 0.8)
 

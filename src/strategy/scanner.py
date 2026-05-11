@@ -14,8 +14,8 @@ from datetime import datetime, timezone
 from dateutil import parser as dtparse
 
 from src.config import (
-    STATIONS, MIN_EDGE_CENTS, MIN_CONFIDENCE_YES, MAX_CONFIDENCE_YES_FOR_NO, ENABLE_YES_TRADES,
-    MIN_MINUTES_TO_SETTLEMENT, ENABLE_CLOB_ENRICHMENT,
+    STATIONS, MIN_EDGE_CENTS, MIN_PRICE_CENTS, MIN_CONFIDENCE_YES, MAX_CONFIDENCE_YES_FOR_NO,
+    ENABLE_YES_TRADES, MIN_MINUTES_TO_SETTLEMENT, ENABLE_CLOB_ENRICHMENT,
 )
 from src.model.envelope import Bracket, WeatherState, true_probability_yes, compute_envelope
 from src.data.polymarket import get_orderbook
@@ -260,7 +260,8 @@ def scan_markets(
 
             # Check for a tradeable edge
             candidate = None
-            if ENABLE_YES_TRADES and ev_yes >= MIN_EDGE_CENTS and p_yes >= MIN_CONFIDENCE_YES:
+            if (ENABLE_YES_TRADES and ev_yes >= MIN_EDGE_CENTS and p_yes >= MIN_CONFIDENCE_YES
+                    and bracket.yes_ask_cents >= MIN_PRICE_CENTS):
                 candidate = Candidate(
                     station=station, bracket=bracket, side="YES",
                     edge_cents=ev_yes, price_cents=bracket.yes_ask_cents,
@@ -268,7 +269,8 @@ def scan_markets(
                     ev_yes=ev_yes, ev_no=ev_no,
                     minutes_to_settlement=mins_left, market=market,
                 )
-            elif ev_no >= MIN_EDGE_CENTS and p_yes <= MAX_CONFIDENCE_YES_FOR_NO:
+            elif (ev_no >= MIN_EDGE_CENTS and p_yes <= MAX_CONFIDENCE_YES_FOR_NO
+                    and bracket.no_ask_cents >= MIN_PRICE_CENTS):
                 candidate = Candidate(
                     station=station, bracket=bracket, side="NO",
                     edge_cents=ev_no, price_cents=bracket.no_ask_cents,
