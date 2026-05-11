@@ -262,10 +262,12 @@ def scan_markets(
 
             if candidate:
                 candidates.append(candidate)
+                label = market.get("groupItemTitle") or f"{bracket.low_f:.0f}-{bracket.high_f:.0f}°F"
+                end_date = market.get("endDate") or market.get("end_date_iso") or "?"
                 print(
-                    f"  ** FLAGGED {bracket.ticker[:16]}… {candidate.side} @ "
+                    f"  ** FLAGGED [{station}] {label} {candidate.side} @ "
                     f"{candidate.price_cents}¢ edge={candidate.edge_cents:.2f}¢ "
-                    f"p={candidate.confidence:.2%}"
+                    f"p={candidate.confidence:.2%} closes={str(end_date)[:10]}"
                 )
 
         except Exception as e:

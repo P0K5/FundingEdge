@@ -115,6 +115,8 @@ def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
         "ts": ts,
         "order_id": order_id,
         "station": candidate.station,
+        "question": candidate.market.get("question") or candidate.market.get("groupItemTitle") or "",
+        "end_date": (candidate.market.get("endDate") or candidate.market.get("end_date_iso") or "")[:10],
         "ticker": candidate.bracket.ticker,
         "side": candidate.side,
         "price_cents": candidate.price_cents,
@@ -236,6 +238,8 @@ def poll_once(risk_manager, live_trader=None) -> None:
         row = {
             "ts": ts,
             "station": cand.station,
+            "question": cand.market.get("question") or cand.market.get("groupItemTitle") or "",
+            "end_date": (cand.market.get("endDate") or cand.market.get("end_date_iso") or "")[:10],
             "ticker": cand.bracket.ticker,
             "bracket_low": cand.bracket.low_f,
             "bracket_high": cand.bracket.high_f,
