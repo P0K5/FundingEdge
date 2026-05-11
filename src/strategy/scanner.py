@@ -15,7 +15,7 @@ from dateutil import parser as dtparse
 
 from src.config import (
     STATIONS, MIN_EDGE_CENTS, MIN_CONFIDENCE_YES, MAX_CONFIDENCE_YES_FOR_NO, ENABLE_YES_TRADES,
-    MIN_MINUTES_TO_SETTLEMENT, MAX_MINUTES_TO_SETTLEMENT, ENABLE_CLOB_ENRICHMENT,
+    MIN_MINUTES_TO_SETTLEMENT, ENABLE_CLOB_ENRICHMENT,
 )
 from src.model.envelope import Bracket, WeatherState, true_probability_yes, compute_envelope
 from src.data.polymarket import get_orderbook
@@ -213,8 +213,25 @@ def scan_markets(
                 continue
 
             mins_left = minutes_to_settlement(market)
-            if mins_left < MIN_MINUTES_TO_SETTLEMENT or mins_left > MAX_MINUTES_TO_SETTLEMENT:
+            if mins_left < MIN_MINUTES_TO_SETTLEMENT:
                 continue
+
+            # Only trade markets that settle today (UTC). Markets closing on a future
+            # date use tomorrow's weather — our METAR data is only valid for today.
+            end_str = (
+                market.get("endDate") or market.get("end_date_iso")
+                or market.get("endDateIso") or market.get("close_time") or ""
+            )
+            if end_str:
+                try:
+                    end_dt = dtparse.parse(str(end_str))
+                    if end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    today_utc = datetime.now(timezone.utc).date()
+                    if end_dt.date() != today_utc:
+                        continue
+                except Exception:
+                    pass
 
             bracket = parse_bracket_from_market(market)
             if not bracket:
