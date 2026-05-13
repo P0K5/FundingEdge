@@ -21,10 +21,10 @@ POLYMARKET_WEATHER_TAG_ID = "84"
 # Polymarket uses for settlement, so we fetch METAR from the same source.
 # KBKF (Denver) and KDAL (Dallas) removed — 0% win rate, excluded until fixed.
 STATIONS = [
-    ("KLGA", 40.7790,  -73.8740,  "New York City", "KLGA"),  # LaGuardia
+    # KLGA (NYC) removed — 31% win rate, -44% ROI on May 12 paper data
+    # KAUS (Austin) removed — 38% win rate, -10% ROI on May 12 paper data
     ("KORD", 41.9742,  -87.9073,  "Chicago",       "KORD"),
     ("KMIA", 25.7953,  -80.2901,  "Miami",         "KMIA"),
-    ("KAUS", 30.1944,  -97.6700,  "Austin",        "KAUS"),
     ("KLAX", 33.9425,  -118.4081, "Los Angeles",   "KLAX"),
     ("KATL", 33.6367,  -84.4281,  "Atlanta",       "KATL"),
     ("KHOU", 29.6454,  -95.2789,  "Houston",       "KHOU"),  # Houston Hobby
@@ -34,10 +34,8 @@ STATIONS = [
 
 # Station timezone mapping (used for local time conversions at each location)
 STATION_TZ = {
-    "KLGA": "America/New_York",
     "KORD": "America/Chicago",
     "KMIA": "America/New_York",
-    "KAUS": "America/Chicago",
     "KLAX": "America/Los_Angeles",
     "KATL": "America/New_York",
     "KHOU": "America/Chicago",
@@ -47,7 +45,7 @@ STATION_TZ = {
 
 # Strategy thresholds (env var overrides)
 MIN_EDGE_CENTS = float(os.getenv("MIN_EDGE_CENTS", "15.0"))
-MIN_PRICE_CENTS = int(os.getenv("MIN_PRICE_CENTS", "10"))  # skip near-certain outcomes that won't fill
+MIN_PRICE_CENTS = int(os.getenv("MIN_PRICE_CENTS", "60"))  # below 60¢ ROI is negative (0-50% win rate)
 MIN_CONFIDENCE_YES = 0.80       # for YES-side trades
 MAX_CONFIDENCE_YES_FOR_NO = 0.20  # for NO-side trades (1 - confidence_no >= 0.8)
 
