@@ -2,7 +2,7 @@
 from typing import Literal
 
 from py_clob_client_v2 import ClobClient
-from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams, CreateOrderOptions, OrderArgs, OrderType
+from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams, CreateOrderOptions, OrderArgs
 
 
 class LiveTrader:
@@ -32,7 +32,7 @@ class LiveTrader:
         )
         # Weather markets on Polymarket are consistently neg_risk=True, tick_size=0.01
         options = CreateOrderOptions(tick_size="0.01", neg_risk=True)
-        resp = self.client.create_and_post_order(args, options, order_type=OrderType.FOK)
+        resp = self.client.create_and_post_order(args, options)
         order_id = resp.get("orderID") or resp.get("id")
         if not order_id:
             raise RuntimeError(f"Order placement failed: {resp}")
