@@ -29,8 +29,7 @@ from src.model.envelope import WeatherState
 from src.risk.manager import RiskManager
 from src.strategy.scanner import scan_markets
 
-FILL_POLL_INTERVAL_S = 30
-FILL_MAX_WAIT_S = 300  # 5 minutes, 10 attempts
+FOK_CHECK_DELAY_S = 5  # FOK orders resolve within seconds; wait briefly then check once
 
 _write_lock = threading.Lock()
 _order_lock = threading.Lock()  # Serialize CLOB placements — HTTP/2 pool not thread-safe
@@ -101,20 +100,13 @@ def _execute_live(candidate, clob_client_factory, risk_manager, ts: str) -> None
 
     print(f"  [live] placed {order_id[:12]}… {candidate.side} @ {candidate.price_cents}¢")
 
-    deadline = time.monotonic() + FILL_MAX_WAIT_S
-    outcome = "timeout"
-    while time.monotonic() < deadline:
-        time.sleep(FILL_POLL_INTERVAL_S)
-        status = trader.check_fill(order_id)
-        if status == "filled":
-            outcome = "filled"
-            break
-        if status == "cancelled":
-            outcome = "cancelled"
-            break
-
-    if outcome == "timeout":
+    # FOK orders either fill immediately or cancel — check once after brief processing delay
+    time.sleep(FOK_CHECK_DELAY_S)
+    outcome = trader.check_fill(order_id)
+    if outcome == "open":
+        # Exchange hasn't resolved yet (shouldn't happen with FOK); cancel to be safe
         trader.cancel_order(order_id)
+        outcome = "cancelled"
 
     risk_manager.close_position()
     if outcome == "filled":
