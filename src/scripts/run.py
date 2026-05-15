@@ -67,8 +67,15 @@ def _append_live_trade(record: dict) -> None:
 # Live order lifecycle
 # ---------------------------------------------------------------------------
 
-def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
-    """Place one order and wait for fill/timeout. open_position() already called by caller."""
+def _execute_live(candidate, clob_client_factory, risk_manager, ts: str) -> None:
+    """Place one order and wait for fill/timeout. open_position() already called by caller.
+
+    Each thread creates its own LiveTrader/ClobClient to avoid HTTP/2 stream
+    collisions when multiple orders are placed concurrently.
+    """
+    from src.execution.live_trader import LiveTrader
+    trader = LiveTrader(clob_client_factory())
+
     token_id = (
         candidate.bracket.yes_token_id if candidate.side == "YES"
         else candidate.bracket.no_token_id
@@ -79,7 +86,7 @@ def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
         return
 
     try:
-        order_id = live_trader.place_order(
+        order_id = trader.place_order(
             token_id=token_id,
             side=candidate.side,
             price_cents=candidate.price_cents,
@@ -96,7 +103,7 @@ def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
     outcome = "timeout"
     while time.monotonic() < deadline:
         time.sleep(FILL_POLL_INTERVAL_S)
-        status = live_trader.check_fill(order_id)
+        status = trader.check_fill(order_id)
         if status == "filled":
             outcome = "filled"
             break
@@ -105,7 +112,7 @@ def _execute_live(candidate, live_trader, risk_manager, ts: str) -> None:
             break
 
     if outcome == "timeout":
-        live_trader.cancel_order(order_id)
+        trader.cancel_order(order_id)
 
     risk_manager.close_position()
     if outcome == "filled":
@@ -268,7 +275,7 @@ def poll_once(risk_manager, live_trader=None) -> None:
     if live_trader and approved:
         with ThreadPoolExecutor(max_workers=len(approved)) as executor:
             futures = [
-                executor.submit(_execute_live, cand, live_trader, risk_manager, ts)
+                executor.submit(_execute_live, cand, live_trader._client_factory, risk_manager, ts)
                 for cand in approved
             ]
             for future in as_completed(futures):
@@ -310,6 +317,7 @@ def main() -> None:
         if not check_clob_health():
             raise SystemExit("[run] CLOB health check failed — verify POLYMARKET_API_KEY and connectivity")
         live_trader = LiveTrader(get_clob_client())
+        live_trader._client_factory = get_clob_client  # Each order thread creates its own client
         print("MeteoEdge starting in LIVE mode. Real orders will be placed.")
     else:
         print("MeteoEdge starting in PAPER mode.")
