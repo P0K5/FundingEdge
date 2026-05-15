@@ -23,13 +23,13 @@ POLYMARKET_WEATHER_TAG_ID = "84"
 STATIONS = [
     # KLGA (NYC) removed — 31% win rate, -44% ROI on May 12 paper data
     # KAUS (Austin) removed — 38% win rate, -10% ROI on May 12 paper data
+    # KSEA (Seattle) removed — 21% win rate, -66% ROI on May 14 paper data (marine layer)
+    # KSFO removed — marine layer causes unreliable forecasts on both YES and NO sides
     ("KORD", 41.9742,  -87.9073,  "Chicago",       "KORD"),
     ("KMIA", 25.7953,  -80.2901,  "Miami",         "KMIA"),
     ("KLAX", 33.9425,  -118.4081, "Los Angeles",   "KLAX"),
     ("KATL", 33.6367,  -84.4281,  "Atlanta",       "KATL"),
     ("KHOU", 29.6454,  -95.2789,  "Houston",       "KHOU"),  # Houston Hobby
-    # KSFO removed — marine layer causes unreliable forecasts on both YES and NO sides
-    ("KSEA", 47.4502,  -122.3088, "Seattle",       "KSEA"),
 ]
 
 # Station timezone mapping (used for local time conversions at each location)
@@ -39,8 +39,6 @@ STATION_TZ = {
     "KLAX": "America/Los_Angeles",
     "KATL": "America/New_York",
     "KHOU": "America/Chicago",
-    "KSFO": "America/Los_Angeles",
-    "KSEA": "America/Los_Angeles",
 }
 
 # Strategy thresholds (env var overrides)
