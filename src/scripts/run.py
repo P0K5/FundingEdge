@@ -33,6 +33,7 @@ FILL_POLL_INTERVAL_S = 30
 FILL_MAX_WAIT_S = 300  # 5 minutes, 10 attempts
 
 _write_lock = threading.Lock()
+_order_lock = threading.Lock()  # Serialize CLOB placements — HTTP/2 pool not thread-safe
 
 
 # ---------------------------------------------------------------------------
@@ -85,17 +86,18 @@ def _execute_live(candidate, clob_client_factory, risk_manager, ts: str) -> None
         risk_manager.close_position()
         return
 
-    try:
-        order_id = trader.place_order(
-            token_id=token_id,
-            side=candidate.side,
-            price_cents=candidate.price_cents,
-            size_usdc=POSITION_SIZE_EUR,
-        )
-    except Exception as e:
-        print(f"  [live] place_order failed: {e}")
-        risk_manager.close_position()
-        return
+    with _order_lock:  # Serialize HTTP/2 placements; fill-monitoring remains parallel
+        try:
+            order_id = trader.place_order(
+                token_id=token_id,
+                side=candidate.side,
+                price_cents=candidate.price_cents,
+                size_usdc=POSITION_SIZE_EUR,
+            )
+        except Exception as e:
+            print(f"  [live] place_order failed: {e}")
+            risk_manager.close_position()
+            return
 
     print(f"  [live] placed {order_id[:12]}… {candidate.side} @ {candidate.price_cents}¢")
 
