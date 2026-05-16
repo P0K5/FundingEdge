@@ -34,6 +34,8 @@ FILL_MAX_WAIT_S = 300  # 5 minutes, 10 attempts
 
 _write_lock = threading.Lock()
 _order_lock = threading.Lock()  # Serialize CLOB placements — HTTP/2 pool not thread-safe
+_open_orders: set[tuple[str, str]] = set()  # (ticker, side) pairs with a live GTC order
+_open_orders_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -77,63 +79,75 @@ def _execute_live(candidate, clob_client_factory, risk_manager, ts: str) -> None
     from src.execution.live_trader import LiveTrader
     trader = LiveTrader(clob_client_factory())
 
-    token_id = (
-        candidate.bracket.yes_token_id if candidate.side == "YES"
-        else candidate.bracket.no_token_id
-    )
-    if not token_id:
-        print(f"  [live] no token_id for {candidate.bracket.ticker[:16]}…, skipping")
-        risk_manager.close_position()
-        return
+    order_key = (candidate.bracket.ticker, candidate.side)
+    with _open_orders_lock:
+        if order_key in _open_orders:
+            print(f"  [live] skip {candidate.side} {candidate.bracket.ticker[:16]}… — GTC order already open")
+            risk_manager.close_position()
+            return
+        _open_orders.add(order_key)
 
-    with _order_lock:  # Serialize HTTP/2 placements; fill-monitoring remains parallel
-        try:
-            order_id = trader.place_order(
-                token_id=token_id,
-                side=candidate.side,
-                price_cents=candidate.price_cents,
-                size_usdc=POSITION_SIZE_EUR,
-            )
-        except Exception as e:
-            print(f"  [live] place_order failed: {e}")
+    try:
+        token_id = (
+            candidate.bracket.yes_token_id if candidate.side == "YES"
+            else candidate.bracket.no_token_id
+        )
+        if not token_id:
+            print(f"  [live] no token_id for {candidate.bracket.ticker[:16]}…, skipping")
             risk_manager.close_position()
             return
 
-    print(f"  [live] placed {order_id[:12]}… {candidate.side} @ {candidate.price_cents}¢")
+        with _order_lock:  # Serialize HTTP/2 placements; fill-monitoring remains parallel
+            try:
+                order_id = trader.place_order(
+                    token_id=token_id,
+                    side=candidate.side,
+                    price_cents=candidate.price_cents,
+                    size_usdc=POSITION_SIZE_EUR,
+                )
+            except Exception as e:
+                print(f"  [live] place_order failed: {e}")
+                risk_manager.close_position()
+                return
 
-    deadline = time.monotonic() + FILL_MAX_WAIT_S
-    outcome = "timeout"
-    while time.monotonic() < deadline:
-        time.sleep(FILL_POLL_INTERVAL_S)
-        status = trader.check_fill(order_id)
-        if status == "filled":
-            outcome = "filled"
-            break
-        if status == "cancelled":
-            outcome = "cancelled"
-            break
+        print(f"  [live] placed {order_id[:12]}… {candidate.side} @ {candidate.price_cents}¢")
 
-    if outcome == "timeout":
-        trader.cancel_order(order_id)
+        deadline = time.monotonic() + FILL_MAX_WAIT_S
+        outcome = "timeout"
+        while time.monotonic() < deadline:
+            time.sleep(FILL_POLL_INTERVAL_S)
+            status = trader.check_fill(order_id)
+            if status == "filled":
+                outcome = "filled"
+                break
+            if status == "cancelled":
+                outcome = "cancelled"
+                break
 
-    risk_manager.close_position()
-    if outcome == "filled":
-        risk_manager.record_pnl(0.0)  # Actual PnL resolved at settlement
+        if outcome == "timeout":
+            trader.cancel_order(order_id)
 
-    _append_live_trade({
-        "ts": ts,
-        "order_id": order_id,
-        "station": candidate.station,
-        "question": candidate.market.get("question") or candidate.market.get("groupItemTitle") or "",
-        "end_date": (candidate.market.get("endDate") or candidate.market.get("end_date_iso") or "")[:10],
-        "ticker": candidate.bracket.ticker,
-        "side": candidate.side,
-        "price_cents": candidate.price_cents,
-        "size_eur": POSITION_SIZE_EUR,
-        "edge_cents": round(candidate.edge_cents, 2),
-        "outcome": outcome,
-    })
-    print(f"  [live] {outcome} {order_id[:12]}…")
+        risk_manager.close_position()
+        if outcome == "filled":
+            risk_manager.record_pnl(0.0)  # Actual PnL resolved at settlement
+
+        _append_live_trade({
+            "ts": ts,
+            "order_id": order_id,
+            "station": candidate.station,
+            "question": candidate.market.get("question") or candidate.market.get("groupItemTitle") or "",
+            "end_date": (candidate.market.get("endDate") or candidate.market.get("end_date_iso") or "")[:10],
+            "ticker": candidate.bracket.ticker,
+            "side": candidate.side,
+            "price_cents": candidate.price_cents,
+            "size_eur": POSITION_SIZE_EUR,
+            "edge_cents": round(candidate.edge_cents, 2),
+            "outcome": outcome,
+        })
+        print(f"  [live] {outcome} {order_id[:12]}…")
+    finally:
+        with _open_orders_lock:
+            _open_orders.discard(order_key)
 
 
 # ---------------------------------------------------------------------------
