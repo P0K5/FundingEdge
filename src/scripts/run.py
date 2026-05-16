@@ -79,24 +79,24 @@ def _execute_live(candidate, clob_client_factory, risk_manager, ts: str) -> None
     from src.execution.live_trader import LiveTrader
     trader = LiveTrader(clob_client_factory())
 
-    order_key = (candidate.bracket.ticker, candidate.side)
+    token_id = (
+        candidate.bracket.yes_token_id if candidate.side == "YES"
+        else candidate.bracket.no_token_id
+    )
+    if not token_id:
+        print(f"  [live] no token_id for {candidate.bracket.ticker[:16]}…, skipping")
+        risk_manager.close_position()
+        return
+
+    order_key = (token_id, candidate.side)
     with _open_orders_lock:
         if order_key in _open_orders:
-            print(f"  [live] skip {candidate.side} {candidate.bracket.ticker[:16]}… — GTC order already open")
+            print(f"  [live] skip {candidate.side} {candidate.bracket.ticker[:16]}… — GTC order already open on exchange")
             risk_manager.close_position()
             return
         _open_orders.add(order_key)
 
     try:
-        token_id = (
-            candidate.bracket.yes_token_id if candidate.side == "YES"
-            else candidate.bracket.no_token_id
-        )
-        if not token_id:
-            print(f"  [live] no token_id for {candidate.bracket.ticker[:16]}…, skipping")
-            risk_manager.close_position()
-            return
-
         with _order_lock:  # Serialize HTTP/2 placements; fill-monitoring remains parallel
             try:
                 order_id = trader.place_order(
@@ -207,11 +207,39 @@ def _build_weather() -> dict[str, WeatherState]:
     return weather
 
 
+def _sync_open_orders(live_trader) -> None:
+    """Refresh _open_orders from Polymarket's actual open order list.
+
+    Called at the top of every live poll so the dedup guard reflects reality —
+    not just in-memory state that can drift after timeouts or restarts.
+    """
+    try:
+        from py_clob_client_v2.clob_types import OpenOrderParams
+        orders = live_trader.client.get_open_orders(OpenOrderParams())
+        live_keys = {(o["asset_id"], "YES" if o.get("side") == "BUY" else "NO") for o in orders}
+        # asset_id on Polymarket = token_id, which maps to our ticker via the bracket.
+        # We key _open_orders by (ticker/conditionId, side) but Polymarket returns asset_id
+        # (the token_id). Store token_ids here so _execute_live dedup also works by token.
+        with _open_orders_lock:
+            # Replace the set with what's actually open on the exchange
+            _open_orders.clear()
+            for o in orders:
+                token_id = o.get("asset_id", "")
+                side = "YES" if o.get("side") == "BUY" else "NO"
+                _open_orders.add((token_id, side))
+        print(f"[orders] {len(orders)} open orders on exchange synced to dedup guard")
+    except Exception as e:
+        print(f"[orders] failed to sync open orders: {e} — dedup guard uses in-memory state")
+
+
 def poll_once(risk_manager, live_trader=None) -> None:
     """Run one full poll: build weather states, fetch markets, scan, log candidates."""
     ts = datetime.now(timezone.utc).isoformat()
     mode_label = "LIVE" if live_trader else "PAPER"
     print(f"\n=== Poll [{mode_label}] at {ts} ===")
+
+    if live_trader:
+        _sync_open_orders(live_trader)
 
     weather = _build_weather()
     if not weather:
