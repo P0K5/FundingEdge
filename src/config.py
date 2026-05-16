@@ -44,8 +44,8 @@ STATION_TZ = {
 # Strategy thresholds (env var overrides)
 MIN_EDGE_CENTS = float(os.getenv("MIN_EDGE_CENTS", "15.0"))
 MIN_PRICE_CENTS = int(os.getenv("MIN_PRICE_CENTS", "60"))  # below 60¢ ROI is negative (0-50% win rate)
-MIN_CONFIDENCE_YES = 0.80       # for YES-side trades
-MAX_CONFIDENCE_YES_FOR_NO = 0.20  # for NO-side trades (1 - confidence_no >= 0.8)
+MIN_CONFIDENCE_YES = 0.85       # for YES-side trades
+MAX_CONFIDENCE_YES_FOR_NO = 0.15  # for NO-side trades (1 - confidence_no >= 0.85)
 
 # YES trades disabled: 51.9% win rate over 3 live days (vs 94.2% for NO).
 # Re-enable once ≥7 days of settlements validate YES accuracy.
