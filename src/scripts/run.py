@@ -156,7 +156,14 @@ def _execute_live(candidate, clob_client_factory, risk_manager, ts: str) -> None
 
 def _build_weather() -> dict[str, WeatherState]:
     weather: dict[str, WeatherState] = {}
+    utc_date = datetime.now(timezone.utc).date()
     for station, lat, lon, city, _ in STATIONS:
+        import pytz
+        local_date = datetime.now(pytz.timezone(STATION_TZ[station])).date()
+        if local_date < utc_date:
+            print(f"[{station}] local date {local_date} behind UTC {utc_date} — skipping to avoid yesterday's METAR data")
+            continue
+
         metars = fetch_all_metars_today(station)
         if not metars:
             print(f"[{station}] no METAR data, skipping")
